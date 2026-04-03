@@ -1,0 +1,9 @@
+# Pipeline dependencies for RAG ingestion (steps 1 & 2)
+# Install with: pip install -r pipeline/requirements_pipeline.txt
+#
+# Steps 3 and 4 use only the Python standard library.
+
+chromadb>=0.5.0
+sentence-transformers>=2.7.0
+numpy>=1.24
+tqdm

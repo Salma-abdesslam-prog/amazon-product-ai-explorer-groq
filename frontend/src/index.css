@@ -1,0 +1,209 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Google Fonts ────────────────────────────────────────────────────────── */
+/* Playfair Display · DM Sans · JetBrains Mono — loaded via index.html */
+
+/* ─── Design tokens ───────────────────────────────────────────────────────── */
+:root {
+  /* Backgrounds */
+  --bg-void:        #080808;
+  --bg-base:        #0e0d0c;
+  --bg-surface:     #141312;
+  --bg-raised:      #1c1a18;
+  --bg-hover:       #232120;
+
+  /* Borders */
+  --border-dim:     rgba(255,255,255,0.06);
+  --border-mid:     rgba(255,255,255,0.10);
+  --border-bright:  rgba(255,255,255,0.18);
+
+  /* Text */
+  --text-primary:   #F2EDE4;
+  --text-secondary: #A89F96;
+  --text-muted:     #6B6560;
+  --text-faint:     #3D3B38;
+
+  /* Accent — amber halogen */
+  --amber:          #E8A320;
+  --amber-dim:      rgba(232,163,32,0.12);
+  --amber-glow:     rgba(232,163,32,0.25);
+  --amber-bright:   #F5B93E;
+
+  /* Accent 2 — ice teal (AI elements) */
+  --teal:           #3DFFF0;
+  --teal-dim:       rgba(61,255,240,0.08);
+  --teal-glow:      rgba(61,255,240,0.20);
+
+  /* Status */
+  --success:        #2ECC71;
+  --success-dim:    rgba(46,204,113,0.10);
+  --danger:         #FF4D4D;
+  --danger-dim:     rgba(255,77,77,0.10);
+
+  /* Radii */
+  --r-sm:    4px;
+  --r-md:    8px;
+  --r-lg:    12px;
+  --r-xl:    16px;
+  --r-full:  9999px;
+
+  /* Transitions */
+  --t-fast:  150ms cubic-bezier(0.4,0,0.2,1);
+  --t-base:  220ms cubic-bezier(0.4,0,0.2,1);
+  --t-slow:  380ms cubic-bezier(0.4,0,0.2,1);
+}
+
+/* ─── Base reset ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-void);
+  color: var(--text-primary);
+  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Noise texture overlay — applied to the app root */
+#root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.35;
+}
+
+/* ─── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-mid);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border-bright); }
+
+/* ─── Keyframes ───────────────────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(32px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -300% 0; }
+  100% { background-position: 300% 0; }
+}
+
+@keyframes pulse-amber {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+
+@keyframes typingDot {
+  0%, 80%, 100% { transform: scale(0.55); opacity: 0.3; }
+  40%           { transform: scale(1);    opacity: 1;   }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes scanline {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 100%; }
+}
+
+/* ─── Utility classes ─────────────────────────────────────────────────────── */
+.animate-fade-up        { animation: fadeUp 0.45s cubic-bezier(0.16,1,0.3,1) both; }
+.animate-fade-in        { animation: fadeIn 0.35s ease both; }
+.animate-slide-in-right { animation: slideInRight 0.35s cubic-bezier(0.16,1,0.3,1) both; }
+
+/* Staggered entrance delays for grid items */
+.stagger-1  { animation-delay: 30ms; }
+.stagger-2  { animation-delay: 60ms; }
+.stagger-3  { animation-delay: 90ms; }
+.stagger-4  { animation-delay: 120ms; }
+.stagger-5  { animation-delay: 150ms; }
+.stagger-6  { animation-delay: 180ms; }
+.stagger-7  { animation-delay: 210ms; }
+.stagger-8  { animation-delay: 240ms; }
+
+/* Skeleton loader */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-raised) 25%,
+    var(--bg-hover)  50%,
+    var(--bg-raised) 75%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* Line clamp */
+.line-clamp-1 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Typing indicator */
+.typing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--teal);
+  animation: typingDot 1.4s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Mono utility */
+.font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Display serif */
+.font-display {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+/* Amber text glow */
+.text-amber { color: var(--amber); }
+.glow-amber { text-shadow: 0 0 16px var(--amber-glow); }
+
+/* Horizontal rule */
+.rule {
+  border: none;
+  border-top: 1px solid var(--border-dim);
+  margin: 0;
+}
