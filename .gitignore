@@ -22,7 +22,12 @@ data/chroma/
 # ── Models — too large for git ───────────────────────
 models/
 
-# ── Node ──────────────────────────────────────────────
+# ── Streamlit ─────────────────────────────────────────
+# Keep .streamlit/config.toml (theme) — only ignore runtime files
+.streamlit/*.db
+.streamlit/secrets.toml
+
+# ── Node (legacy React frontend, kept for reference) ──
 frontend/node_modules/
 frontend/build/
 frontend/.env

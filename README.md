@@ -1,10 +1,9 @@
 # Amazone-Product-AI-Explorer
 
-A full-stack RAG-powered product chatbot built on real Amazon catalogue data. Browse thousands of products, click any item, and get instant AI answers about it — streamed token-by-token from a local Phi-3 model with full semantic context retrieval.
+A RAG-powered product chatbot built on real Amazon catalogue data. Browse thousands of products, click any item, and get instant AI answers streamed token-by-token from a local Phi-3 model with full semantic context retrieval.
 
-![Architecture](https://img.shields.io/badge/stack-React%20%2B%20FastAPI%20%2B%20ChromaDB%20%2B%20Phi--3-E8A320?style=flat-square)
+![Architecture](https://img.shields.io/badge/stack-Streamlit%20%2B%20FastAPI%20%2B%20ChromaDB%20%2B%20Phi--3-E8A320?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square)
-![Node](https://img.shields.io/badge/Node.js-18%2B-green?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-white?style=flat-square)
 
 ---
@@ -12,10 +11,10 @@ A full-stack RAG-powered product chatbot built on real Amazon catalogue data. Br
 ## What it does
 
 - **Browse** a searchable, filterable grid of real Amazon products across multiple categories
-- **Click any product** to open an AI chat panel on the right
+- **Click any product** to open an AI chat session for that item
 - **Ask anything** — "Is this waterproof?", "How does it compare to similar products?", "What are the main complaints?"
 - **Get streamed answers** grounded in actual product data via RAG (no hallucinated specs)
-- **Upload new categories** at any time through the built-in data panel
+- **Upload new categories** at any time through the built-in dataset panel
 
 ---
 
@@ -47,10 +46,10 @@ UCSD Amazon Dataset (.jsonl.gz)
                        │ token stream
                        ▼
 ┌─────────────────────────────────────────────────────┐
-│              React Frontend (:3000)                 │
+│           Streamlit Frontend (:8501)                │
 │                                                     │
-│  ProductBrowser   CategoryFilter   SearchBar        │
-│  ProductCard      ChatBot (SSE)    UploadPanel      │
+│  Sidebar nav     Browse (4-col product grid)        │
+│  AI Chat (SSE)   Dataset Upload                     │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -60,9 +59,9 @@ UCSD Amazon Dataset (.jsonl.gz)
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, Tailwind CSS, Lucide icons |
+| Frontend | Streamlit ≥ 1.32, dark amber theme |
 | Backend | FastAPI, Uvicorn (async) |
-| LLM | Phi-3-mini-4k via Ollama (local, no API key) |
+| LLM | Phi-3-mini via Ollama (local, no API key) |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
 | Vector DB | ChromaDB (persistent, cosine similarity) |
 | Streaming | Server-Sent Events (SSE) end-to-end |
@@ -74,10 +73,10 @@ UCSD Amazon Dataset (.jsonl.gz)
 
 | Tool | Version | Purpose |
 |---|---|---|
-| Python | 3.10+ | Backend + embeddings |
-| Node.js | 18+ | Frontend |
+| Python | 3.10+ | Backend + embeddings + frontend |
 | [Ollama](https://ollama.com/download) | latest | Local LLM runtime |
-| npm | 9+ | Frontend deps |
+
+> Node.js is **not required** — the frontend is pure Python (Streamlit).
 
 ---
 
@@ -86,7 +85,7 @@ UCSD Amazon Dataset (.jsonl.gz)
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Amazone-Product-AI-Explorer.git
+git clone https://github.com/Salma-abdesslam-prog/Amazone-Product-AI-Explorer.git
 cd Amazone-Product-AI-Explorer
 ```
 
@@ -104,44 +103,37 @@ cd backend
 pip install -r requirements.txt
 ```
 
-### 4. Install frontend dependencies
+### 4. Install Streamlit dependencies
 
 ```bash
-cd ../frontend
-npm install
+cd ..
+pip install -r requirements-streamlit.txt
 ```
 
 ### 5. Run everything
 
-**Option A — one command (Linux / macOS / WSL):**
-```bash
-cd ..
-chmod +x start.sh
-./start.sh
-```
-
-**Option B — three separate terminals:**
+Three separate terminals:
 
 ```bash
-# Terminal 1 — Backend
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8080 --reload
-
-# Terminal 2 — Ollama (if not already running)
+# Terminal 1 — Ollama (if not already running as a service)
 ollama serve
 
-# Terminal 3 — Frontend
-cd frontend
-npm start
+# Terminal 2 — FastAPI backend
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8080
+
+# Terminal 3 — Streamlit frontend
+cd ..
+streamlit run streamlit_app.py
 ```
 
-Open **http://localhost:3000**
+Open **http://localhost:8501**
 
 ---
 
 ## Loading Product Data
 
-The app ships without product data. On first launch, click **Upload Data** in the top-right corner and drop one of the UCSD Amazon dataset files.
+The app ships without product data. On first launch, go to **Upload Dataset** in the sidebar and upload one of the UCSD Amazon dataset files.
 
 ### Download a dataset file
 
@@ -168,7 +160,7 @@ Upload the first file with **Replace** mode, then upload additional files with *
    - ChromaDB retrieves the top-3 semantically similar related products
    - All context is assembled into the system prompt
 
-3. **Generation** — Phi-3 streams a grounded answer via Ollama's `/api/chat` endpoint. Tokens are forwarded to the browser as SSE, appearing in real-time.
+3. **Generation** — Phi-3 streams a grounded answer via Ollama's `/api/chat` endpoint. Tokens are forwarded to Streamlit as SSE and rendered in real-time with `st.write_stream`.
 
 ---
 
@@ -176,42 +168,29 @@ Upload the first file with **Replace** mode, then upload additional files with *
 
 ```
 Amazone-Product-AI-Explorer/
+├── streamlit_app.py             # Streamlit UI — browse, chat, upload
+├── requirements-streamlit.txt   # Streamlit dependencies
+├── .streamlit/
+│   └── config.toml              # Dark amber theme
 ├── backend/
-│   ├── main.py              # FastAPI app — all API endpoints
-│   ├── products.py          # ProductLoader: in-memory search + normalisation
-│   ├── rag.py               # RAGEngine: ChromaDB + Ollama streaming
+│   ├── main.py                  # FastAPI app — all API endpoints
+│   ├── products.py              # ProductLoader: in-memory search + normalisation
+│   ├── rag.py                   # RAGEngine: ChromaDB + Ollama SSE streaming
 │   └── requirements.txt
-├── frontend/
-│   ├── public/
-│   │   └── index.html
-│   ├── src/
-│   │   ├── App.jsx                      # Root layout
-│   │   ├── index.css                    # Design tokens + animations
-│   │   ├── components/
-│   │   │   ├── ProductBrowser.jsx       # Grid + pagination
-│   │   │   ├── ProductCard.jsx          # Individual product tile
-│   │   │   ├── SearchBar.jsx            # Debounced search
-│   │   │   ├── CategoryFilter.jsx       # Category tag filter
-│   │   │   ├── ChatBot.jsx              # Streaming AI chat panel
-│   │   │   └── UploadPanel.jsx          # File upload + ingestion modal
-│   │   └── hooks/
-│   │       ├── useProducts.js           # Product fetching + pagination
-│   │       └── useChat.js               # SSE streaming chat state
-│   ├── package.json
-│   └── tailwind.config.js
 ├── pipeline/
-│   ├── 1_prepare_dataset.py             # Normalise raw UCSD data
-│   ├── 2_build_vectorstore.py           # Pre-build ChromaDB index
-│   ├── 3_start_ollama.py                # Check + start Ollama
-│   ├── 4_test_rag.py                    # End-to-end RAG test
-│   └── download_all.py                  # Bulk dataset downloader
+│   ├── 1_prepare_dataset.py     # Normalise raw UCSD data
+│   ├── 2_build_vectorstore.py   # Pre-build ChromaDB index
+│   ├── 3_start_ollama.py        # Check + start Ollama
+│   ├── 4_test_rag.py            # End-to-end RAG test
+│   └── download_all.py          # Bulk dataset downloader
 ├── data/
-│   ├── raw/                             # Place .jsonl.gz files here
-│   ├── processed/                       # Normalised products.jsonl
-│   └── chroma/                          # ChromaDB persistent store
-├── start.sh                             # Launch all services
+│   ├── raw/                     # Place .jsonl.gz files here
+│   ├── processed/               # Normalised products.jsonl
+│   └── chroma/                  # ChromaDB persistent store
 └── README.md
 ```
+
+> The `frontend/` directory (legacy React app) is kept for reference but is no longer used.
 
 ---
 
@@ -232,18 +211,12 @@ Amazone-Product-AI-Explorer/
 
 | Problem | Fix |
 |---|---|
-| **No products in grid** | Upload a dataset file via the Upload Data button |
-| **Chat returns no response** | Check Ollama is running: `ollama list` — make sure `phi3` is listed |
+| **No products in grid** | Upload a dataset file via the Upload Dataset page in the sidebar |
+| **Chat shows no response** | Check Ollama is running: `ollama list` — make sure `phi3` appears |
+| **"model requires more system memory"** | Phi-3 needs ~2.2 GB free RAM. Close other apps, or reduce the context window in `rag.py` (`num_ctx`) |
 | **Backend won't start** | `pip install -r backend/requirements.txt` — ChromaDB needs Python 3.10+ |
-| **Slow first response** | Normal — first query loads the embedding model into memory (~2–5s) |
-| **CORS error in browser** | Ensure backend is on port 8080, not another port |
+| **Slow first response** | Normal — first query loads the embedding model into memory (~2–5 s) |
 | **Embedding errors** | First run downloads the MiniLM model (~90 MB) — needs internet access |
-
----
-
-## Design
-
-The UI follows a **Neo-Editorial Commerce** aesthetic — near-black backgrounds, warm cream typography, amber accent color, and JetBrains Mono for all metadata. Fonts: Playfair Display (display) · DM Sans (body) · JetBrains Mono (mono).
 
 ---
 
