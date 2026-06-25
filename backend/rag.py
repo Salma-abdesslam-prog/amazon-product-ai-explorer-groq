@@ -219,15 +219,29 @@ class RAGEngine:
             with httpx.stream(
                 "POST",
                 f"{OLLAMA_URL}/api/chat",
-                json={"model": OLLAMA_MODEL, "messages": ollama_messages, "stream": True},
+                json={"model": OLLAMA_MODEL, "messages": ollama_messages, "stream": True,
+                      "options": {"num_ctx": 512}},
                 timeout=120,
             ) as resp:
-                resp.raise_for_status()
+                if resp.status_code != 200:
+                    # Read body while stream is still open, before raise_for_status closes it
+                    resp.read()
+                    error_body = resp.text[:300]
+                    try:
+                        error_body = json.loads(error_body).get("error", error_body)
+                    except Exception:
+                        pass
+                    yield f"\n\n⚠️ Ollama error {resp.status_code}: {error_body}"
+                    return
                 for line in resp.iter_lines():
                     if not line:
                         continue
                     try:
                         data = json.loads(line)
+                        # Check for inline error (Ollama sometimes returns 200 + error body)
+                        if "error" in data:
+                            yield f"\n\n⚠️ Ollama: {data['error']}"
+                            return
                         token = data.get("message", {}).get("content", "")
                         if token:
                             yield token
@@ -240,7 +254,5 @@ class RAGEngine:
                 "\n\n⚠️ Cannot reach Ollama. "
                 "Please make sure Ollama is running: https://ollama.com"
             )
-        except httpx.HTTPStatusError as e:
-            yield f"\n\n⚠️ Ollama error {e.response.status_code}: {e.response.text[:200]}"
         except Exception as e:
             yield f"\n\n⚠️ Unexpected error: {str(e)}"
