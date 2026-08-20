@@ -2,5 +2,5 @@ fastapi
 uvicorn[standard]
 python-multipart
 chromadb
-sentence-transformers
-httpx
+fastembed
+groq

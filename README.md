@@ -1,8 +1,8 @@
 # Amazone-Product-AI-Explorer
 
-A RAG-powered product chatbot built on real Amazon catalogue data. Browse thousands of products, click any item, and get instant AI answers streamed token-by-token from a local Phi-3 model with full semantic context retrieval.
+A RAG-powered product chatbot built on real Amazon catalogue data. Browse thousands of products, click any item, and get instant AI answers streamed token-by-token from Llama 3.3 (via the Groq API) with full semantic context retrieval.
 
-![Architecture](https://img.shields.io/badge/stack-Streamlit%20%2B%20FastAPI%20%2B%20ChromaDB%20%2B%20Phi--3-E8A320?style=flat-square)
+![Architecture](https://img.shields.io/badge/stack-Streamlit%20%2B%20ChromaDB%20%2B%20Groq-E8A320?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-white?style=flat-square)
 
@@ -20,38 +20,37 @@ A RAG-powered product chatbot built on real Amazon catalogue data. Browse thousa
 
 ## Architecture
 
+Everything runs **in a single Streamlit process** — no separate backend server, no local model runtime. This is what makes it deployable to Streamlit Community Cloud, which only runs one `streamlit run` command.
+
 ```
 UCSD Amazon Dataset (.jsonl.gz)
           │
           ▼
-┌─────────────────────────────────────────────────────┐
-│                  FastAPI Backend (:8080)             │
-│                                                     │
-│  ProductLoader          RAGEngine                   │
-│  ┌─────────────┐        ┌──────────────────────┐    │
-│  │ products[]  │        │ sentence-transformers │    │
-│  │ in-memory   │        │ all-MiniLM-L6-v2     │    │
-│  │ text search │        │ ChromaDB (cosine)     │    │
-│  └─────────────┘        └──────────────────────┘    │
-│         │                        │                  │
-│         └──────────┬─────────────┘                  │
-│                    ▼                                 │
-│              /chat endpoint                         │
-│         (product ctx + top-3 related)               │
-└──────────────────────┬──────────────────────────────┘
-                       │ SSE stream
-                       ▼
-              Ollama (:11434)
-              Phi-3-mini-4k
-                       │ token stream
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│           Streamlit Frontend (:8501)                │
-│                                                     │
-│  Sidebar nav     Browse (4-col product grid)        │
-│  AI Chat (SSE)   Dataset Upload                     │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│              Streamlit App (streamlit_app.py)          │
+│                                                         │
+│  ProductLoader              RAGEngine                  │
+│  ┌─────────────┐            ┌───────────────────────┐  │
+│  │ products[]  │            │ fastembed             │  │
+│  │ in-memory   │            │ all-MiniLM-L6-v2      │  │
+│  │ text search │            │ ChromaDB (cosine)     │  │
+│  └─────────────┘            └───────────────────────┘  │
+│         │                            │                 │
+│         └──────────────┬─────────────┘                 │
+│                        ▼                                │
+│              product ctx + top-3 related                │
+│                        │                                │
+│                        ▼                                │
+│                  Groq API (cloud)                       │
+│                  Llama 3.3 70B                           │
+│                        │ token stream                   │
+│                        ▼                                │
+│              Sidebar nav · Browse grid                  │
+│              AI Chat · Dataset Upload                   │
+└───────────────────────────────────────────────────────┘
 ```
+
+An optional standalone FastAPI backend (`backend/main.py`) is kept for local API access / the legacy React frontend — see [Optional: standalone backend](#optional-standalone-fastapi-backend). It shares the same `ProductLoader` / `RAGEngine` code as the Streamlit app.
 
 ---
 
@@ -59,28 +58,17 @@ UCSD Amazon Dataset (.jsonl.gz)
 
 | Layer | Technology |
 |---|---|
-| Frontend | Streamlit ≥ 1.32, dark amber theme |
-| Backend | FastAPI, Uvicorn (async) |
-| LLM | Phi-3-mini via Ollama (local, no API key) |
-| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
+| App | Streamlit ≥ 1.32, dark amber theme |
+| LLM | Llama 3.3 70B via the [Groq API](https://console.groq.com) (cloud, free tier available) |
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` via `fastembed` (ONNX runtime, no torch) |
 | Vector DB | ChromaDB (persistent, cosine similarity) |
-| Streaming | Server-Sent Events (SSE) end-to-end |
 | Data | UCSD Amazon Review Dataset 2023 |
 
----
-
-## Prerequisites
-
-| Tool | Version | Purpose |
-|---|---|---|
-| Python | 3.10+ | Backend + embeddings + frontend |
-| [Ollama](https://ollama.com/download) | latest | Local LLM runtime |
-
-> Node.js is **not required** — the frontend is pure Python (Streamlit).
+> Node.js is **not required** — the app is pure Python (Streamlit). The `frontend/` React app and `backend/` FastAPI service are legacy/optional — see below.
 
 ---
 
-## Quick Start
+## Quick Start (local)
 
 ### 1. Clone the repo
 
@@ -89,45 +77,51 @@ git clone https://github.com/Salma-abdesslam-prog/Amazone-Product-AI-Explorer.gi
 cd Amazone-Product-AI-Explorer
 ```
 
-### 2. Install Ollama and pull Phi-3
+### 2. Get a free Groq API key
+
+Sign up and create a key at **https://console.groq.com/keys**.
+
+### 3. Install dependencies
 
 ```bash
-# Install from https://ollama.com/download, then:
-ollama pull phi3
-```
-
-### 3. Install backend dependencies
-
-```bash
-cd backend
 pip install -r requirements.txt
 ```
 
-### 4. Install Streamlit dependencies
+### 4. Configure the API key
 
 ```bash
-cd ..
-pip install -r requirements-streamlit.txt
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+# then edit .streamlit/secrets.toml and paste your key
 ```
 
-### 5. Run everything
+(Alternatively, set the `GROQ_API_KEY` environment variable instead.)
 
-Three separate terminals:
+### 5. Run it
 
 ```bash
-# Terminal 1 — Ollama (if not already running as a service)
-ollama serve
-
-# Terminal 2 — FastAPI backend
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8080
-
-# Terminal 3 — Streamlit frontend
-cd ..
 streamlit run streamlit_app.py
 ```
 
 Open **http://localhost:8501**
+
+---
+
+## Deploying to Streamlit Community Cloud
+
+1. Push this repo to GitHub.
+2. Go to **[share.streamlit.io](https://share.streamlit.io)** → **New app**.
+3. Pick the repo/branch and set **Main file path** to `streamlit_app.py`. Streamlit Cloud auto-detects the root `requirements.txt`.
+4. In **Advanced settings → Secrets**, paste:
+   ```toml
+   GROQ_API_KEY = "gsk_your_key_here"
+   ```
+5. Deploy.
+
+### Things to know about the Cloud environment
+
+- **Storage is ephemeral.** Uploaded datasets and the ChromaDB index live on local disk for the lifetime of the running container. They survive reruns and normal use, but are wiped on redeploy or after the app sleeps from inactivity — you'll need to re-upload a dataset file after that happens. There's no product data bundled in the repo (`data/` is gitignored) since the UCSD dataset files are large.
+- **Memory.** The free tier has limited RAM. `fastembed` (ONNX-based, no PyTorch) was chosen specifically to keep the embedding step lightweight; if you load a very large dataset (100k+ products) on the free tier, watch for OOM and consider a smaller category file first.
+- **Cold start.** The first request after a sleep/redeploy re-downloads the ~90 MB embedding model and re-initializes ChromaDB — expect a slower first load.
 
 ---
 
@@ -153,14 +147,14 @@ Upload the first file with **Replace** mode, then upload additional files with *
 
 ## How the RAG Pipeline Works
 
-1. **Ingestion** — Each product is serialised as a text document (title + brand + price + category + description + features + rating) and embedded using `all-MiniLM-L6-v2`. Embeddings are stored in ChromaDB with ASIN as the document ID.
+1. **Ingestion** — Each product is serialised as a text document (title + brand + price + category + description + features + rating) and embedded using `all-MiniLM-L6-v2` (via `fastembed`). Embeddings are stored in ChromaDB with ASIN as the document ID.
 
 2. **Query** — When a user asks a question about a product:
    - The selected product's full record is fetched by ASIN
    - ChromaDB retrieves the top-3 semantically similar related products
    - All context is assembled into the system prompt
 
-3. **Generation** — Phi-3 streams a grounded answer via Ollama's `/api/chat` endpoint. Tokens are forwarded to Streamlit as SSE and rendered in real-time with `st.write_stream`.
+3. **Generation** — Llama 3.3 70B streams a grounded answer via the Groq API. Tokens are rendered in real-time with `st.write_stream`.
 
 ---
 
@@ -168,33 +162,43 @@ Upload the first file with **Replace** mode, then upload additional files with *
 
 ```
 Amazone-Product-AI-Explorer/
-├── streamlit_app.py             # Streamlit UI — browse, chat, upload
-├── requirements-streamlit.txt   # Streamlit dependencies
+├── streamlit_app.py             # The app — UI + in-process RAG (browse, chat, upload)
+├── requirements.txt              # Dependencies for the Streamlit app (used by Streamlit Cloud)
 ├── .streamlit/
-│   └── config.toml              # Dark amber theme
-├── backend/
-│   ├── main.py                  # FastAPI app — all API endpoints
-│   ├── products.py              # ProductLoader: in-memory search + normalisation
-│   ├── rag.py                   # RAGEngine: ChromaDB + Ollama SSE streaming
+│   ├── config.toml               # Dark amber theme
+│   └── secrets.toml.example      # Copy to secrets.toml and add your GROQ_API_KEY
+├── backend/                      # Optional standalone FastAPI backend (local dev only)
+│   ├── main.py                   # FastAPI app — REST endpoints over the same logic
+│   ├── products.py               # ProductLoader: in-memory search + normalisation
+│   ├── rag.py                    # RAGEngine: ChromaDB + Groq streaming
 │   └── requirements.txt
 ├── pipeline/
-│   ├── 1_prepare_dataset.py     # Normalise raw UCSD data
-│   ├── 2_build_vectorstore.py   # Pre-build ChromaDB index
-│   ├── 3_start_ollama.py        # Check + start Ollama
-│   ├── 4_test_rag.py            # End-to-end RAG test
-│   └── download_all.py          # Bulk dataset downloader
+│   ├── 1_prepare_dataset.py      # Normalise raw UCSD data
+│   ├── 2_build_vectorstore.py    # Pre-build ChromaDB index
+│   ├── 3_check_groq.py           # Verify GROQ_API_KEY + API connectivity
+│   ├── 4_test_rag.py             # End-to-end test of the optional FastAPI backend
+│   └── download_all.py           # Bulk dataset downloader
 ├── data/
-│   ├── raw/                     # Place .jsonl.gz files here
-│   ├── processed/               # Normalised products.jsonl
-│   └── chroma/                  # ChromaDB persistent store
+│   ├── raw/                      # Place .jsonl.gz files here
+│   ├── processed/                # Normalised products.jsonl
+│   └── chroma/                   # ChromaDB persistent store
 └── README.md
 ```
 
-> The `frontend/` directory (legacy React app) is kept for reference but is no longer used.
+> The `frontend/` directory (legacy React app) is kept for reference but is no longer used — it required the FastAPI backend, which the Streamlit app no longer depends on.
 
 ---
 
-## API Reference
+## Optional: standalone FastAPI backend
+
+`backend/main.py` still exists as a REST API over the same `ProductLoader`/`RAGEngine` code, for local development or integrating with something other than the Streamlit UI. It's independent of the Streamlit app — not needed to run or deploy it.
+
+```bash
+export GROQ_API_KEY=gsk_...          # or set it however your shell prefers
+pip install -r backend/requirements.txt
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+```
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -212,11 +216,12 @@ Amazone-Product-AI-Explorer/
 | Problem | Fix |
 |---|---|
 | **No products in grid** | Upload a dataset file via the Upload Dataset page in the sidebar |
-| **Chat shows no response** | Check Ollama is running: `ollama list` — make sure `phi3` appears |
-| **"model requires more system memory"** | Phi-3 needs ~2.2 GB free RAM. Close other apps, or reduce the context window in `rag.py` (`num_ctx`) |
-| **Backend won't start** | `pip install -r backend/requirements.txt` — ChromaDB needs Python 3.10+ |
-| **Slow first response** | Normal — first query loads the embedding model into memory (~2–5 s) |
-| **Embedding errors** | First run downloads the MiniLM model (~90 MB) — needs internet access |
+| **Sidebar shows "No GROQ_API_KEY configured"** | Add the key to `.streamlit/secrets.toml` (local) or the app's Secrets panel (Streamlit Cloud) |
+| **Chat shows a Groq error** | Check your key is valid at https://console.groq.com/keys and that you haven't hit a rate limit |
+| **App is slow / crashes after a big upload (Cloud)** | Free tier RAM is limited — try a smaller category file, or upgrade the app's resources |
+| **Data disappeared after redeploy (Cloud)** | Expected — Cloud storage is ephemeral. Re-upload your dataset file |
+| **Slow first response** | Normal — first query loads the embedding model into memory (~2–5 s locally, longer on a cold Cloud start) |
+| **Embedding errors** | First run downloads the MiniLM ONNX model (~90 MB) — needs internet access |
 
 ---
 

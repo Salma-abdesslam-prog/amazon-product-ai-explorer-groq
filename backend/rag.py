@@ -1,21 +1,22 @@
 """
 rag.py — RAG engine using ChromaDB for vector storage,
-sentence-transformers for embeddings, and Ollama for generation.
+fastembed for embeddings, and the Groq API for generation.
 """
 
 import json
 import logging
+import os
 from typing import Iterator
 
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
-import httpx
+from fastembed import TextEmbedding
+from groq import Groq
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = "http://localhost:11434"
-OLLAMA_MODEL = "phi3:latest"
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 COLLECTION_NAME = "amazon_products"
 
 
@@ -46,9 +47,9 @@ def _product_to_doc(p: dict) -> str:
 
 
 class RAGEngine:
-    def __init__(self, chroma_dir: str):
-        logger.info("Loading embedding model (all-MiniLM-L6-v2)…")
-        self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    def __init__(self, chroma_dir: str, groq_api_key: str | None = None):
+        logger.info("Loading embedding model (%s)…", EMBEDDING_MODEL)
+        self._embedder = TextEmbedding(model_name=EMBEDDING_MODEL)
         self._chroma = chromadb.PersistentClient(
             path=chroma_dir,
             settings=Settings(anonymized_telemetry=False),
@@ -57,6 +58,8 @@ class RAGEngine:
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
         )
+        api_key = groq_api_key or os.environ.get("GROQ_API_KEY", "")
+        self._groq = Groq(api_key=api_key) if api_key else None
         logger.info("RAG engine ready — %d docs indexed", self._col.count())
 
     @property
@@ -96,7 +99,7 @@ class RAGEngine:
                 }
                 for p in batch
             ]
-            embeds = self._embedder.encode(docs, show_progress_bar=False).tolist()
+            embeds = [e.tolist() for e in self._embedder.embed(docs)]
             # upsert handles both insert and update, safe for both modes
             self._col.upsert(documents=docs, embeddings=embeds, ids=ids, metadatas=metas)
             total += len(batch)
@@ -123,7 +126,7 @@ class RAGEngine:
         count = self._col.count()
         if count == 0:
             return []
-        emb = self._embedder.encode([query]).tolist()
+        emb = [e.tolist() for e in self._embedder.embed([query])]
         # fetch k+1 so we can drop the selected product itself from related results
         n = min(k + 1, count)
         res = self._col.query(
@@ -146,7 +149,7 @@ class RAGEngine:
         self, message: str, product: dict, history: list[dict]
     ) -> Iterator[str]:
         """
-        Build a full-data RAG prompt and stream tokens from Ollama.
+        Build a full-data RAG prompt and stream tokens from Groq.
 
         Uses:
         1. The complete product record (all fields, no truncation)
@@ -195,8 +198,8 @@ class RAGEngine:
 
         context_block = "\n".join(ctx_lines)
 
-        # ── Build Ollama message list ─────────────────────────────────────────
-        ollama_messages = [
+        # ── Build chat message list ───────────────────────────────────────────
+        chat_messages = [
             {
                 "role": "system",
                 "content": (
@@ -209,50 +212,28 @@ class RAGEngine:
         ]
         for h in history[-6:]:
             if h.get("content"):
-                ollama_messages.append({"role": h["role"], "content": h["content"]})
-        ollama_messages.append(
+                chat_messages.append({"role": h["role"], "content": h["content"]})
+        chat_messages.append(
             {"role": "user", "content": f"{context_block}\n\nQuestion: {message}"}
         )
 
-        # ── Stream from Ollama ────────────────────────────────────────────────
-        try:
-            with httpx.stream(
-                "POST",
-                f"{OLLAMA_URL}/api/chat",
-                json={"model": OLLAMA_MODEL, "messages": ollama_messages, "stream": True,
-                      "options": {"num_ctx": 512}},
-                timeout=120,
-            ) as resp:
-                if resp.status_code != 200:
-                    # Read body while stream is still open, before raise_for_status closes it
-                    resp.read()
-                    error_body = resp.text[:300]
-                    try:
-                        error_body = json.loads(error_body).get("error", error_body)
-                    except Exception:
-                        pass
-                    yield f"\n\n⚠️ Ollama error {resp.status_code}: {error_body}"
-                    return
-                for line in resp.iter_lines():
-                    if not line:
-                        continue
-                    try:
-                        data = json.loads(line)
-                        # Check for inline error (Ollama sometimes returns 200 + error body)
-                        if "error" in data:
-                            yield f"\n\n⚠️ Ollama: {data['error']}"
-                            return
-                        token = data.get("message", {}).get("content", "")
-                        if token:
-                            yield token
-                        if data.get("done"):
-                            break
-                    except json.JSONDecodeError:
-                        continue
-        except httpx.ConnectError:
+        # ── Stream from Groq ───────────────────────────────────────────────────
+        if self._groq is None:
             yield (
-                "\n\n⚠️ Cannot reach Ollama. "
-                "Please make sure Ollama is running: https://ollama.com"
+                "\n\n⚠️ No Groq API key configured. Set the GROQ_API_KEY secret "
+                "(get a free key at https://console.groq.com/keys)."
             )
+            return
+
+        try:
+            stream = self._groq.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=chat_messages,
+                stream=True,
+            )
+            for chunk in stream:
+                token = chunk.choices[0].delta.content
+                if token:
+                    yield token
         except Exception as e:
-            yield f"\n\n⚠️ Unexpected error: {str(e)}"
+            yield f"\n\n⚠️ Groq error: {str(e)}"

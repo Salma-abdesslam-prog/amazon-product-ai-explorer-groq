@@ -139,7 +139,7 @@ def main():
     else:
         print(f"  FAILED — HTTP {status}: {body[:200]}")
         print("\n  Is the backend running?")
-        print("    cd amazon-phi3-app/backend && uvicorn main:app --port 8080 --reload")
+        print("    cd backend && uvicorn main:app --port 8080 --reload")
         failed += 1
 
     # ── Test 2: Products endpoint ─────────────────────────────────────────────
@@ -206,7 +206,7 @@ def main():
         print("  Steps:")
         print("    1. python pipeline/1_prepare_dataset.py --input data/raw/")
         print("    2. python pipeline/2_build_vectorstore.py")
-        print("    3. python pipeline/3_start_ollama.py")
+        print("    3. python pipeline/3_check_groq.py")
         print("    4. cd backend && uvicorn main:app --port 8080 --reload")
         sys.exit(1)
 

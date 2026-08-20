@@ -4,6 +4,6 @@
 # Steps 3 and 4 use only the Python standard library.
 
 chromadb>=0.5.0
-sentence-transformers>=2.7.0
+fastembed>=0.3.0
 numpy>=1.24
 tqdm

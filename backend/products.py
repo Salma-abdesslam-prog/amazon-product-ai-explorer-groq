@@ -106,6 +106,39 @@ def normalise_raw(raw: dict) -> dict:
     }
 
 
+def parse_jsonl_bytes(data: bytes) -> list:
+    """Parse JSONL bytes (plain or gzip-compressed) into a list of normalised product dicts."""
+    try:
+        text = gzip.decompress(data).decode("utf-8", errors="replace")
+    except (gzip.BadGzipFile, OSError):
+        text = data.decode("utf-8", errors="replace")
+
+    products = []
+    seen = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # If already normalised (has 'title' key at top level), use as-is
+        if "title" in raw and len(raw.get("title", "")) >= 5:
+            p = raw
+        else:
+            p = normalise_raw(raw)
+        if not p.get("title") or len(p["title"]) < 5:
+            continue
+        asin = p.get("asin", "")
+        if asin and asin in seen:
+            continue
+        if asin:
+            seen.add(asin)
+        products.append(p)
+    return products
+
+
 class ProductLoader:
     """Loads, normalises, and serves Amazon product data."""
 

@@ -2,14 +2,15 @@
 main.py — FastAPI backend for Amazon RAG Chatbot.
 
 Serves product data + handles file ingestion into ChromaDB + streams
-RAG-powered chat responses via Ollama.
+RAG-powered chat responses via the Groq API.
+
+Optional: the Streamlit app (streamlit_app.py) no longer needs this backend —
+it calls ProductLoader/RAGEngine in-process. Kept for local dev / API access.
 
 Run with:
-    uvicorn main:app --reload --port 5000
+    uvicorn main:app --reload --port 8080
 """
 
-import gzip
-import io
 import json
 import logging
 import sys
@@ -22,7 +23,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from products import ProductLoader, normalise_raw
+from products import ProductLoader, normalise_raw, parse_jsonl_bytes
 from rag import RAGEngine
 
 logging.basicConfig(
@@ -97,39 +98,6 @@ class ChatRequest(BaseModel):
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _parse_jsonl_bytes(data: bytes) -> list[dict]:
-    """Parse JSONL bytes (plain or gzip-compressed) into a list of dicts."""
-    try:
-        text = gzip.decompress(data).decode("utf-8", errors="replace")
-    except (gzip.BadGzipFile, OSError):
-        text = data.decode("utf-8", errors="replace")
-
-    products = []
-    seen = set()
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        # If already normalised (has 'title' key at top level), use as-is
-        if "title" in raw and len(raw.get("title", "")) >= 5:
-            p = raw
-        else:
-            p = normalise_raw(raw)
-        if not p.get("title") or len(p["title"]) < 5:
-            continue
-        asin = p.get("asin", "")
-        if asin and asin in seen:
-            continue
-        if asin:
-            seen.add(asin)
-        products.append(p)
-    return products
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
@@ -181,7 +149,7 @@ async def ingest_file(
     raw_bytes = await file.read()
     logger.info("Received file '%s' (%d bytes), append=%s", file.filename, len(raw_bytes), append)
 
-    products = _parse_jsonl_bytes(raw_bytes)
+    products = parse_jsonl_bytes(raw_bytes)
     if not products:
         raise HTTPException(status_code=422, detail="No valid products found in the uploaded file.")
 
@@ -210,7 +178,7 @@ async def chat(req: ChatRequest):
     """
     RAG chat endpoint.
     Looks up the complete product record by ASIN from the in-memory loader,
-    then retrieves related context from ChromaDB and streams an Ollama response.
+    then retrieves related context from ChromaDB and streams a Groq response.
     """
     rag: RAGEngine = app.state.rag
     loader: ProductLoader = app.state.loader

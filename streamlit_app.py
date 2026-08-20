@@ -1,17 +1,26 @@
 """
 Amazone Product AI Explorer — Streamlit UI
 Sidebar navigation + product grid + RAG chat + dataset upload.
-Run: streamlit run streamlit_app.py   (backend on :8080)
+Everything (product search + RAG + LLM) runs in-process — no separate
+backend server needed, so this deploys as a single app on Streamlit
+Community Cloud.
+Run: streamlit run streamlit_app.py
 """
 
-import json
+import os
+import sys
+from pathlib import Path
 from typing import Generator
 
-import requests
 import streamlit as st
 
-API_BASE = "http://localhost:8080"
-LIMIT    = 20
+_ROOT = Path(__file__).parent
+sys.path.insert(0, str(_ROOT / "backend"))
+
+from products import ProductLoader, parse_jsonl_bytes  # noqa: E402
+from rag import RAGEngine  # noqa: E402
+
+LIMIT = 20
 
 # Gradient palette for products without images
 _GRAD = [
@@ -120,67 +129,81 @@ def _go(page: str, product: dict | None = None):
         st.session_state.messages = []
     st.rerun()
 
-# ─── API ──────────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=30)
+# ─── In-process backend (ProductLoader + RAGEngine) ────────────────────────────
+def _groq_api_key() -> str:
+    try:
+        key = st.secrets.get("GROQ_API_KEY", "")
+    except Exception:
+        # st.secrets raises if no secrets.toml exists at all (e.g. local dev without one)
+        key = ""
+    return key or os.environ.get("GROQ_API_KEY", "")
+
+@st.cache_resource(show_spinner="Loading product catalogue…")
+def get_loader() -> ProductLoader:
+    loader = ProductLoader()
+    loader.load(
+        processed_path=str(_ROOT / "data" / "processed" / "products.jsonl"),
+        raw_dir=str(_ROOT / "data" / "raw"),
+    )
+    return loader
+
+@st.cache_resource(show_spinner="Loading embedding model + vector index…")
+def get_rag(_loader: ProductLoader) -> RAGEngine:
+    rag = RAGEngine(chroma_dir=str(_ROOT / "data" / "chroma"), groq_api_key=_groq_api_key())
+    if rag.doc_count != len(_loader.products) and _loader.products:
+        rag.ingest(_loader.products)
+    return rag
+
 def api_products(query: str, category: str, page: int):
     try:
-        r = requests.get(
-            f"{API_BASE}/products",
-            params={"search": query, "category": category, "page": page, "limit": LIMIT},
-            timeout=10,
-        )
-        r.raise_for_status()
-        d = r.json()
-        return d.get("products", []), d.get("total", 0), d.get("pages", 1), None
-    except requests.exceptions.ConnectionError:
-        return [], 0, 1, "Cannot connect to backend on port 8080."
+        loader = get_loader()
+        result = loader.search(query=query, category=category, page=page, limit=LIMIT)
+        return result["products"], result["total"], result["pages"], None
     except Exception as e:
         return [], 0, 1, str(e)
 
-@st.cache_data(ttl=120)
 def api_categories():
     try:
-        r = requests.get(f"{API_BASE}/categories", timeout=10)
-        r.raise_for_status()
-        return r.json().get("categories", [])
+        return get_loader().get_categories()
     except Exception:
         return []
 
-@st.cache_data(ttl=60)
 def api_health():
     try:
-        r = requests.get(f"{API_BASE}/health", timeout=5)
-        r.raise_for_status()
-        return r.json()
+        loader = get_loader()
+        rag = get_rag(loader)
+        return {"products": len(loader.products), "indexed_docs": rag.doc_count}
     except Exception:
         return None
 
+def ingest_upload(file_bytes: bytes, append: bool) -> dict:
+    """Parse an uploaded dataset file and merge/replace it into the loader + vector index."""
+    products = parse_jsonl_bytes(file_bytes)
+    if not products:
+        raise ValueError("No valid products found in the uploaded file.")
+
+    loader = get_loader()
+    rag = get_rag(loader)
+
+    if append:
+        existing_asins = set(loader.by_asin.keys())
+        new_products = [p for p in products if p.get("asin") not in existing_asins or not p.get("asin")]
+        loader.load_from_list(loader.products + new_products)
+        rag.ingest(new_products, append=True)
+        return {
+            "products": len(loader.products),
+            "new_products": len(new_products),
+            "indexed_docs": rag.doc_count,
+        }
+    else:
+        loader.load_from_list(products)
+        n = rag.ingest(products, append=False)
+        return {"products": len(products), "new_products": len(products), "indexed_docs": n}
+
 def chat_stream(user_text: str, product: dict, history: list) -> Generator[str, None, None]:
     try:
-        with requests.post(
-            f"{API_BASE}/chat",
-            json={"message": user_text, "product": product, "history": history},
-            stream=True, timeout=120,
-        ) as resp:
-            resp.raise_for_status()
-            buf = ""
-            for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
-                buf += chunk
-                lines = buf.split("\n")
-                buf = lines[-1]
-                for line in lines[:-1]:
-                    line = line.strip()
-                    if not line.startswith("data:"):
-                        continue
-                    raw = line[5:].strip()
-                    if raw == "[DONE]":
-                        return
-                    try:
-                        delta = json.loads(raw)["choices"][0]["delta"].get("content", "")
-                        if delta:
-                            yield delta
-                    except Exception:
-                        pass
+        rag = get_rag(get_loader())
+        yield from rag.stream_chat(user_text, product, history)
     except Exception as e:
         yield f"\n\n⚠️ {e}"
 
@@ -243,7 +266,7 @@ def product_card(prod: dict, sel_asin: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("## ◉ Product AI")
-    st.caption("RAG-powered Amazon catalogue · Phi-3")
+    st.caption("RAG-powered Amazon catalogue · Llama 3.3 (Groq)")
     st.divider()
 
     # ── Navigation ────────────────────────────────────────────────────────────
@@ -297,7 +320,10 @@ with st.sidebar:
         sc1.metric("Products",  f"{health.get('products', 0):,}")
         sc2.metric("Indexed",   f"{health.get('indexed_docs', 0):,}")
     else:
-        st.warning("Backend offline", icon="⚠️")
+        st.warning("Could not load the catalogue.", icon="⚠️")
+
+    if not _groq_api_key():
+        st.warning("No **GROQ_API_KEY** configured — chat is disabled.", icon="🔑")
 
     # ── Selected product info ─────────────────────────────────────────────────
     sel = st.session_state.selected_product
@@ -374,16 +400,14 @@ if st.session_state.nav == "browse":
                 st.session_state.search   = ""
                 st.session_state.category = ""
                 st.session_state.page     = 1
-                api_products.clear()
                 st.rerun()
 
     st.divider()
 
     # Error state
     if err:
-        st.error(f"**Connection error:** {err}", icon="🔌")
-        if st.button("🔄 Retry connection"):
-            api_products.clear()
+        st.error(f"**Error loading products:** {err}", icon="⚠️")
+        if st.button("🔄 Retry"):
             st.rerun()
 
     # Empty state
@@ -501,7 +525,7 @@ elif st.session_state.nav == "chat":
                 meta_parts = [p for p in [brand, price] if p]
                 if rating > 0:
                     meta_parts.append(f"{_stars(rating)} {rating:.1f}")
-                meta_parts.append("🟢 Phi-3 · RAG")
+                meta_parts.append("🟢 Llama 3.3 · RAG")
                 st.caption("  ·  ".join(meta_parts))
 
             with bc3:
@@ -628,51 +652,27 @@ elif st.session_state.nav == "upload":
     # ── Upload processing ──────────────────────────────────────────────────────
     if submit and uploaded:
         with st.status("Processing dataset…", expanded=True) as status:
-            st.write("📤 Uploading file to backend…")
+            st.write("📖 Parsing file…")
             try:
-                r = requests.post(
-                    f"{API_BASE}/ingest?append={str(append).lower()}",
-                    files={
-                        "file": (
-                            uploaded.name,
-                            uploaded.getvalue(),
-                            "application/octet-stream",
-                        )
-                    },
-                    timeout=300,
-                )
+                d = ingest_upload(uploaded.getvalue(), append=append)
                 st.write("🔧 Indexing into vector database…")
-                d = r.json()
 
-                if r.ok:
-                    status.update(
-                        label="✅ Dataset processed successfully!",
-                        state="complete",
-                        expanded=True,
-                    )
-                    added  = d.get("new_products", d.get("products", 0))
-                    total  = d.get("products", 0)
-                    idx    = d.get("indexed_docs", 0)
+                status.update(
+                    label="✅ Dataset processed successfully!",
+                    state="complete",
+                    expanded=True,
+                )
+                added = d.get("new_products", d.get("products", 0))
+                total = d.get("products", 0)
+                idx   = d.get("indexed_docs", 0)
 
-                    st.divider()
-                    rc1, rc2, rc3 = st.columns(3)
-                    rc1.metric("New products added",   f"+{added:,}")
-                    rc2.metric("Total in database",    f"{total:,}")
-                    rc3.metric("Documents indexed",    f"{idx:,}")
+                st.divider()
+                rc1, rc2, rc3 = st.columns(3)
+                rc1.metric("New products added", f"+{added:,}")
+                rc2.metric("Total in database",  f"{total:,}")
+                rc3.metric("Documents indexed",  f"{idx:,}")
+                st.balloons()
 
-                    # Invalidate caches
-                    api_products.clear()
-                    api_categories.clear()
-                    api_health.clear()
-                    st.balloons()
-
-                else:
-                    status.update(label="❌ Upload failed", state="error")
-                    st.error(d.get("detail", f"Server returned HTTP {r.status_code}"))
-
-            except requests.exceptions.ConnectionError:
-                status.update(label="❌ Connection error", state="error")
-                st.error("Cannot reach backend on port 8080. Is it running?")
             except Exception as e:
-                status.update(label="❌ Unexpected error", state="error")
+                status.update(label="❌ Upload failed", state="error")
                 st.error(str(e))

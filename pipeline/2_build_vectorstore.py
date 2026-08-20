@@ -3,7 +3,7 @@
 2_build_vectorstore.py — Embed products and ingest them into ChromaDB.
 
 Reads products.jsonl produced by step 1, encodes each product as a text
-document using sentence-transformers (all-MiniLM-L6-v2), and upserts into
+document using fastembed (all-MiniLM-L6-v2), and upserts into
 ChromaDB so the backend RAG engine can retrieve them at query time.
 """
 
@@ -85,9 +85,9 @@ def main():
         sys.exit(1)
 
     try:
-        from sentence_transformers import SentenceTransformer
+        from fastembed import TextEmbedding
     except ImportError:
-        print("ERROR: sentence-transformers not installed. Run: pip install -r pipeline/requirements_pipeline.txt", file=sys.stderr)
+        print("ERROR: fastembed not installed. Run: pip install -r pipeline/requirements_pipeline.txt", file=sys.stderr)
         sys.exit(1)
 
     # ── Init ChromaDB ─────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ def main():
 
     # ── Load embedding model ──────────────────────────────────────────────────
     print("\nLoading embedding model (all-MiniLM-L6-v2)...")
-    embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    embedder = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
     print("Model loaded.")
 
     # ── Ingest in batches ─────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ def main():
             }
             for p in batch
         ]
-        embeds = embedder.encode(docs, show_progress_bar=False).tolist()
+        embeds = [e.tolist() for e in embedder.embed(docs)]
         collection.upsert(documents=docs, embeddings=embeds, ids=ids, metadatas=metas)
         total_ingested += len(batch)
         pct = 100 * total_ingested / len(products)
@@ -148,7 +148,7 @@ def main():
     print(f"\n\nDone. {total_ingested:,} products indexed in ChromaDB.")
     print(f"Collection '{collection_name}' now contains {collection.count():,} documents.")
     print(f"\nNext step:")
-    print(f"  python pipeline/3_start_ollama.py")
+    print(f"  python pipeline/3_check_groq.py")
 
 
 if __name__ == "__main__":

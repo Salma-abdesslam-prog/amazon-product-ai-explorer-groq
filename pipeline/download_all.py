@@ -203,9 +203,9 @@ def main():
     print("Loading embedding model on CPU …")
     import chromadb
     from chromadb.config import Settings
-    from sentence_transformers import SentenceTransformer
+    from fastembed import TextEmbedding
 
-    embedder = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+    embedder = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
     chroma = chromadb.PersistentClient(
         path=str(CHROMA_DIR),
         settings=Settings(anonymized_telemetry=False),
@@ -309,7 +309,7 @@ def main():
                     "category": p.get("main_category", ""),
                 })
 
-            embeds = embedder.encode(docs, show_progress_bar=False).tolist()
+            embeds = [e.tolist() for e in embedder.embed(docs)]
             col.upsert(documents=docs, embeddings=embeds, ids=ids, metadatas=metas)
 
             done = min(j + batch_size, len(products))

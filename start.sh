@@ -2,38 +2,19 @@
 set -e
 
 echo "========================================="
-echo "   Amazone-Product-AI-Explorer — Starting Services"
+echo "   Amazone-Product-AI-Explorer — Starting"
 echo "========================================="
 
-# Check Ollama is running
-if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+if [ -z "$GROQ_API_KEY" ] && [ ! -f ".streamlit/secrets.toml" ]; then
   echo ""
-  echo "WARNING: Ollama is not running or not installed."
-  echo "  1. Install Ollama: https://ollama.com/download"
-  echo "  2. Pull the model:  ollama pull phi3"
-  echo "  3. Then re-run this script."
+  echo "WARNING: No GROQ_API_KEY found (env var or .streamlit/secrets.toml)."
+  echo "  Get a free key at https://console.groq.com/keys"
+  echo "  Then either:"
+  echo "    export GROQ_API_KEY=gsk_..."
+  echo "  or copy .streamlit/secrets.toml.example to .streamlit/secrets.toml"
+  echo "  and fill it in. The app will still start, but chat will be disabled."
   echo ""
 fi
 
-# Backend
-echo "[1/2] Starting FastAPI backend on port 8080..."
-cd backend && uvicorn main:app --host 0.0.0.0 --port 8080 --reload &
-BACKEND_PID=$!
-cd ..
-
-# Frontend
-echo "[2/2] Starting React frontend on port 3000..."
-cd frontend && npm start &
-FRONTEND_PID=$!
-cd ..
-
-echo ""
-echo "========================================="
-echo "  Backend  → http://localhost:8080"
-echo "  Ollama   → http://localhost:11434"
-echo "  Frontend → http://localhost:3000"
-echo "========================================="
-echo "Press Ctrl+C to stop all services."
-
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
-wait
+echo "Starting Streamlit app on http://localhost:8501 ..."
+streamlit run streamlit_app.py
