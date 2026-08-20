@@ -234,7 +234,7 @@ def product_card(prod: dict, sel_asin: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("## ◉ Product AI")
-    st.caption("RAG-powered Amazon catalogue · Llama 3.3 (Groq)")
+    st.caption("RAG-powered Amazon catalogue · GPT-OSS 120B (Groq)")
     st.divider()
 
     # ── Navigation ────────────────────────────────────────────────────────────
@@ -435,7 +435,7 @@ elif st.session_state.nav == "chat":
                 meta_parts = [p for p in [brand, price] if p]
                 if rating > 0:
                     meta_parts.append(f"{_stars(rating)} {rating:.1f}")
-                meta_parts.append("🟢 Llama 3.3 · RAG")
+                meta_parts.append("🟢 GPT-OSS 120B · RAG")
                 st.caption("  ·  ".join(meta_parts))
 
             with bc3:

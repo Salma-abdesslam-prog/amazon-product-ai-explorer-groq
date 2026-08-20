@@ -1,6 +1,6 @@
 # Amazone-Product-AI-Explorer
 
-A RAG-powered product chatbot built on real Amazon catalogue data. Browse thousands of products, click any item, and get instant AI answers streamed token-by-token from Llama 3.3 (via the Groq API) with full semantic context retrieval.
+A RAG-powered product chatbot built on real Amazon catalogue data. Browse thousands of products, click any item, and get instant AI answers streamed token-by-token from GPT-OSS 120B (via the Groq API) with full semantic context retrieval.
 
 ![Architecture](https://img.shields.io/badge/stack-Streamlit%20%2B%20ChromaDB%20%2B%20Groq-E8A320?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square)
@@ -41,7 +41,7 @@ UCSD Amazon Dataset (.jsonl.gz)
 │                        │                                │
 │                        ▼                                │
 │                  Groq API (cloud)                       │
-│                  Llama 3.3 70B                           │
+│                  GPT-OSS 120B                            │
 │                        │ token stream                   │
 │                        ▼                                │
 │              Sidebar nav · Browse grid                  │
@@ -58,7 +58,7 @@ An optional standalone FastAPI backend (`backend/main.py`) is kept for local API
 | Layer | Technology |
 |---|---|
 | App | Streamlit ≥ 1.32, dark amber theme |
-| LLM | Llama 3.3 70B via the [Groq API](https://console.groq.com) (cloud, free tier available) |
+| LLM | GPT-OSS 120B via the [Groq API](https://console.groq.com) (cloud, free tier available) |
 | Embeddings | `sentence-transformers/all-MiniLM-L6-v2` via `fastembed` (ONNX runtime, no torch) |
 | Vector DB | ChromaDB (persistent, cosine similarity) |
 | Data | UCSD Amazon Review Dataset 2023 |
@@ -167,7 +167,7 @@ Streamlit Cloud redeploys automatically and picks up the new file on startup.
    - ChromaDB retrieves the top-3 semantically similar related products
    - All context is assembled into the system prompt
 
-3. **Generation** — Llama 3.3 70B streams a grounded answer via the Groq API. Tokens are rendered in real-time with `st.write_stream`.
+3. **Generation** — GPT-OSS 120B streams a grounded answer via the Groq API. Tokens are rendered in real-time with `st.write_stream`.
 
 ---
 

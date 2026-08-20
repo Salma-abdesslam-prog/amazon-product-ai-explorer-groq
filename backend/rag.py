@@ -16,7 +16,7 @@ from groq import Groq
 logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
 COLLECTION_NAME = "amazon_products"
 
 
