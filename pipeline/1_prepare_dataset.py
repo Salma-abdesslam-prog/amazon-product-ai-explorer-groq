@@ -74,6 +74,11 @@ def _first_image(raw: dict) -> str:
     return ""
 
 
+def _looks_like_price(s: str) -> bool:
+    """Reject raw CSS/HTML scraping artifacts that sometimes land in the price field."""
+    return len(s) <= 40 and not any(c in s for c in "{};<>")
+
+
 def _parse_price(raw: dict) -> str:
     for field in ("price", "Price"):
         val = raw.get(field)
@@ -82,7 +87,7 @@ def _parse_price(raw: dict) -> str:
         if isinstance(val, (int, float)):
             return f"${val:.2f}"
         s = str(val).strip()
-        if s and not _is_fallback(s):
+        if s and not _is_fallback(s) and _looks_like_price(s):
             return s
     return "Price not listed"
 
