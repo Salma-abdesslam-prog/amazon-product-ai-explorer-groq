@@ -119,7 +119,7 @@ Open **http://localhost:8501**
 
 ### Things to know about the Cloud environment
 
-- **Storage is ephemeral.** Uploaded datasets and the ChromaDB index live on local disk for the lifetime of the running container. They survive reruns and normal use, but are wiped on redeploy or after the app sleeps from inactivity — you'll need to re-upload a dataset file after that happens. There's no product data bundled in the repo (`data/` is gitignored) since the UCSD dataset files are large.
+- **Storage is ephemeral.** The bundled demo dataset (`data/processed/products.jsonl`, committed to the repo) always reloads on startup, so the app never comes up empty. But anything added afterwards — an **Upload Dataset** file, or the extra products it indexes — lives on local disk for the lifetime of the running container only. It survives reruns and normal use, but is wiped on redeploy or after the app sleeps from inactivity, reverting back to just the bundled demo data.
 - **Memory.** The free tier has limited RAM. `fastembed` (ONNX-based, no PyTorch) was chosen specifically to keep the embedding step lightweight; if you load a very large dataset (100k+ products) on the free tier, watch for OOM and consider a smaller category file first.
 - **Cold start.** The first request after a sleep/redeploy re-downloads the ~90 MB embedding model and re-initializes ChromaDB — expect a slower first load.
 
@@ -127,7 +127,7 @@ Open **http://localhost:8501**
 
 ## Loading Product Data
 
-The app ships without product data. On first launch, go to **Upload Dataset** in the sidebar and upload one of the UCSD Amazon dataset files.
+The app ships with a small **demo dataset built in** — 300 products from the UCSD "Luxury Beauty" category (`data/processed/products.jsonl`, committed to the repo) — so browsing and chat work immediately with no setup. To load more/different products, go to **Upload Dataset** in the sidebar (**Replace** swaps the demo data out, **Append** merges in on top of it) and upload one of the UCSD Amazon dataset files.
 
 ### Download a dataset file
 
@@ -179,9 +179,10 @@ Amazone-Product-AI-Explorer/
 │   ├── 4_test_rag.py             # End-to-end test of the optional FastAPI backend
 │   └── download_all.py           # Bulk dataset downloader
 ├── data/
-│   ├── raw/                      # Place .jsonl.gz files here
-│   ├── processed/                # Normalised products.jsonl
-│   └── chroma/                   # ChromaDB persistent store
+│   ├── raw/                      # Place .jsonl.gz files here (gitignored)
+│   ├── processed/
+│   │   └── products.jsonl        # Committed demo dataset (300 products) — replaced/appended via Upload
+│   └── chroma/                   # ChromaDB persistent store (gitignored, rebuilt at startup)
 └── README.md
 ```
 
@@ -215,7 +216,7 @@ uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 
 | Problem | Fix |
 |---|---|
-| **No products in grid** | Upload a dataset file via the Upload Dataset page in the sidebar |
+| **No products in grid** | Shouldn't happen — the demo dataset ships in the repo. If it does, check `data/processed/products.jsonl` exists, or upload a dataset file via the Upload Dataset page |
 | **Sidebar shows "No GROQ_API_KEY configured"** | Add the key to `.streamlit/secrets.toml` (local) or the app's Secrets panel (Streamlit Cloud) |
 | **Chat shows a Groq error** | Check your key is valid at https://console.groq.com/keys and that you haven't hit a rate limit |
 | **App is slow / crashes after a big upload (Cloud)** | Free tier RAM is limited — try a smaller category file, or upgrade the app's resources |

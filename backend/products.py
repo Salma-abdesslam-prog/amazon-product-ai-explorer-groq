@@ -77,7 +77,7 @@ def normalise_raw(raw: dict) -> dict:
     features = [_clean_str(f) for f in feat_raw if _clean_str(f)]
 
     cats = _flatten_categories(raw.get("categories") or raw.get("category") or [])
-    main_cat = _clean_str(raw.get("main_category") or (cats[0] if cats else ""))
+    main_cat = _clean_str(raw.get("main_category") or raw.get("main_cat") or (cats[0] if cats else ""))
 
     rating_raw = raw.get("average_rating") or raw.get("overall") or 0.0
     try:

@@ -16,7 +16,8 @@ env/
 
 # ── Data — large files, never commit raw datasets ───
 data/raw/
-data/processed/
+data/processed/*
+!data/processed/products.jsonl
 data/chroma/
 
 # ── Models — too large for git ───────────────────────
