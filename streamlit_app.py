@@ -1,9 +1,10 @@
 """
 Amazone Product AI Explorer — Streamlit UI
-Sidebar navigation + product grid + RAG chat + dataset upload.
+Sidebar navigation + product grid + RAG chat.
 Everything (product search + RAG + LLM) runs in-process — no separate
 backend server needed, so this deploys as a single app on Streamlit
-Community Cloud.
+Community Cloud. Ships with a bundled demo dataset (data/processed/products.jsonl)
+so the catalogue is populated from the first launch.
 Run: streamlit run streamlit_app.py
 """
 
@@ -17,7 +18,7 @@ import streamlit as st
 _ROOT = Path(__file__).parent
 sys.path.insert(0, str(_ROOT / "backend"))
 
-from products import ProductLoader, parse_jsonl_bytes  # noqa: E402
+from products import ProductLoader  # noqa: E402
 from rag import RAGEngine  # noqa: E402
 
 LIMIT = 20
@@ -28,11 +29,10 @@ _GRAD = [
     ("#1a1510", "#28201a"), ("#14101a", "#211828"), ("#0e1a1a", "#162828"),
 ]
 
-NAV = ["browse", "chat", "upload"]
+NAV = ["browse", "chat"]
 NAV_LABEL = {
     "browse": "🛍️  Browse catalogue",
     "chat":   "💬  AI Chat",
-    "upload": "📤  Upload dataset",
 }
 
 # ─── Page config ──────────────────────────────────────────────────────────────
@@ -100,8 +100,6 @@ for _k, _v in {
     "nav":              "browse",
     "selected_product": None,
     "messages":         [],
-    "search":           "",
-    "category":         "",
     "page":             1,
 }.items():
     if _k not in st.session_state:
@@ -154,19 +152,13 @@ def get_rag(_loader: ProductLoader) -> RAGEngine:
         rag.ingest(_loader.products)
     return rag
 
-def api_products(query: str, category: str, page: int):
+def api_products(page: int):
     try:
         loader = get_loader()
-        result = loader.search(query=query, category=category, page=page, limit=LIMIT)
+        result = loader.search(page=page, limit=LIMIT)
         return result["products"], result["total"], result["pages"], None
     except Exception as e:
         return [], 0, 1, str(e)
-
-def api_categories():
-    try:
-        return get_loader().get_categories()
-    except Exception:
-        return []
 
 def api_health():
     try:
@@ -175,30 +167,6 @@ def api_health():
         return {"products": len(loader.products), "indexed_docs": rag.doc_count}
     except Exception:
         return None
-
-def ingest_upload(file_bytes: bytes, append: bool) -> dict:
-    """Parse an uploaded dataset file and merge/replace it into the loader + vector index."""
-    products = parse_jsonl_bytes(file_bytes)
-    if not products:
-        raise ValueError("No valid products found in the uploaded file.")
-
-    loader = get_loader()
-    rag = get_rag(loader)
-
-    if append:
-        existing_asins = set(loader.by_asin.keys())
-        new_products = [p for p in products if p.get("asin") not in existing_asins or not p.get("asin")]
-        loader.load_from_list(loader.products + new_products)
-        rag.ingest(new_products, append=True)
-        return {
-            "products": len(loader.products),
-            "new_products": len(new_products),
-            "indexed_docs": rag.doc_count,
-        }
-    else:
-        loader.load_from_list(products)
-        n = rag.ingest(products, append=False)
-        return {"products": len(products), "new_products": len(products), "indexed_docs": n}
 
 def chat_stream(user_text: str, product: dict, history: list) -> Generator[str, None, None]:
     try:
@@ -284,36 +252,7 @@ with st.sidebar:
 
     st.divider()
 
-    # ── Filters (relevant for browse) ─────────────────────────────────────────
-    new_search = st.text_input(
-        "🔍 Search",
-        value=st.session_state.search,
-        placeholder="headphones, laptops, shoes…",
-    )
-    if new_search != st.session_state.search:
-        st.session_state.search   = new_search
-        st.session_state.page     = 1
-        st.session_state.nav      = "browse"
-        st.rerun()
-
-    cats   = api_categories()
-    opts   = ["All categories"] + cats
-    cur_ci = 0
-    if st.session_state.category:
-        try:
-            cur_ci = opts.index(st.session_state.category)
-        except ValueError:
-            cur_ci = 0
-    cat_pick = st.selectbox("📂 Category", opts, index=cur_ci)
-    new_cat  = "" if cat_pick == "All categories" else cat_pick
-    if new_cat != st.session_state.category:
-        st.session_state.category = new_cat
-        st.session_state.page     = 1
-        st.session_state.nav      = "browse"
-        st.rerun()
-
     # ── DB stats ──────────────────────────────────────────────────────────────
-    st.divider()
     health = api_health()
     if health:
         sc1, sc2 = st.columns(2)
@@ -365,42 +304,13 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════════════════════════
 if st.session_state.nav == "browse":
 
-    # Header row
-    h_left, h_right = st.columns([5, 2])
-    with h_left:
-        st.markdown("## 🛍️ Browse Catalogue")
+    st.markdown("## 🛍️ Browse Catalogue")
 
     # Fetch
-    products, total, pages, err = api_products(
-        st.session_state.search, st.session_state.category, st.session_state.page
-    )
+    products, total, pages, err = api_products(st.session_state.page)
 
-    # Active filter pills + count
-    pill_parts = []
-    if st.session_state.search:
-        pill_parts.append(f"🔍 **{st.session_state.search}**")
-    if st.session_state.category:
-        pill_parts.append(f"📂 **{st.session_state.category}**")
-
-    info_cols = st.columns([6, 1]) if pill_parts else [st.container()]
-    with info_cols[0]:
-        if not err:
-            if pill_parts:
-                st.markdown(
-                    f"{' · '.join(pill_parts)} · "
-                    f"<span style='color:gray'>{total:,} results · page {st.session_state.page}/{pages}</span>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.caption(f"{total:,} products · page {st.session_state.page} of {pages}")
-
-    if pill_parts and len(info_cols) > 1:
-        with info_cols[1]:
-            if st.button("✕ Clear", use_container_width=True):
-                st.session_state.search   = ""
-                st.session_state.category = ""
-                st.session_state.page     = 1
-                st.rerun()
+    if not err:
+        st.caption(f"{total:,} products · page {st.session_state.page} of {pages}")
 
     st.divider()
 
@@ -418,7 +328,7 @@ if st.session_state.nav == "browse":
                 "<br><div style='text-align:center;padding:2rem 0;'>"
                 "<p style='font-size:3rem'>🔍</p>"
                 "<p style='font-size:1.1rem;font-weight:600;'>No products found</p>"
-                "<p style='color:gray;'>Try different keywords or clear the filters.</p>"
+                "<p style='color:gray;'>The catalogue is empty.</p>"
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -578,101 +488,3 @@ elif st.session_state.nav == "chat":
                 {"role": "assistant", "content": response}
             )
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN — UPLOAD
-# ═══════════════════════════════════════════════════════════════════════════════
-elif st.session_state.nav == "upload":
-
-    st.markdown("## 📤 Upload Dataset")
-    st.caption("Import Amazon product data from UCSD dataset files.")
-    st.divider()
-
-    # ── DB stats ──────────────────────────────────────────────────────────────
-    health = api_health()
-    if health:
-        mc1, mc2, mc3 = st.columns(3)
-        products_n  = health.get("products", 0)
-        indexed_n   = health.get("indexed_docs", 0)
-        coverage    = indexed_n / max(products_n, 1)
-        mc1.metric("Products in database", f"{products_n:,}")
-        mc2.metric("Indexed documents",    f"{indexed_n:,}")
-        mc3.metric("Index coverage",       f"{coverage:.0%}",
-                   delta="fully indexed" if coverage >= 0.99 else "partial",
-                   delta_color="normal" if coverage >= 0.99 else "inverse")
-    else:
-        st.error("Cannot reach backend to show database stats.", icon="🔌")
-
-    st.divider()
-
-    # ── Upload form ───────────────────────────────────────────────────────────
-    with st.container(border=True):
-        st.subheader("Import file")
-        st.caption("Accepts **.json**, **.jsonl**, and **.jsonl.gz** files (UCSD Amazon dataset format)")
-
-        uploaded = st.file_uploader(
-            "Dataset file",
-            type=["json", "jsonl", "gz"],
-            label_visibility="collapsed",
-        )
-
-        if uploaded:
-            sz_mb = uploaded.size / 1024 / 1024
-            st.info(f"📄 **{uploaded.name}** — {sz_mb:.2f} MB", icon="✅")
-
-        st.markdown("---")
-        st.markdown("**Import mode**")
-
-        mode = st.radio(
-            "mode",
-            options=["replace", "append"],
-            format_func=lambda x: (
-                "🔄  Replace — wipe all existing products and load this file"
-                if x == "replace" else
-                "➕  Append — merge new products with existing ones (deduplicates by ASIN)"
-            ),
-            label_visibility="collapsed",
-        )
-        append = mode == "append"
-
-        if mode == "replace" and uploaded:
-            st.warning(
-                "This will **permanently delete** all existing products and replace them.",
-                icon="⚠️",
-            )
-
-        st.markdown("---")
-        submit = st.button(
-            "Append & Index" if append else "Upload & Replace",
-            disabled=not uploaded,
-            type="primary",
-            use_container_width=True,
-        )
-
-    # ── Upload processing ──────────────────────────────────────────────────────
-    if submit and uploaded:
-        with st.status("Processing dataset…", expanded=True) as status:
-            st.write("📖 Parsing file…")
-            try:
-                d = ingest_upload(uploaded.getvalue(), append=append)
-                st.write("🔧 Indexing into vector database…")
-
-                status.update(
-                    label="✅ Dataset processed successfully!",
-                    state="complete",
-                    expanded=True,
-                )
-                added = d.get("new_products", d.get("products", 0))
-                total = d.get("products", 0)
-                idx   = d.get("indexed_docs", 0)
-
-                st.divider()
-                rc1, rc2, rc3 = st.columns(3)
-                rc1.metric("New products added", f"+{added:,}")
-                rc2.metric("Total in database",  f"{total:,}")
-                rc3.metric("Documents indexed",  f"{idx:,}")
-                st.balloons()
-
-            except Exception as e:
-                status.update(label="❌ Upload failed", state="error")
-                st.error(str(e))

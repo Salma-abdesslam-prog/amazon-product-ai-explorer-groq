@@ -10,11 +10,10 @@ A RAG-powered product chatbot built on real Amazon catalogue data. Browse thousa
 
 ## What it does
 
-- **Browse** a searchable, filterable grid of real Amazon products across multiple categories
+- **Browse** a grid of real Amazon products, populated from a bundled demo dataset out of the box
 - **Click any product** to open an AI chat session for that item
 - **Ask anything** — "Is this waterproof?", "How does it compare to similar products?", "What are the main complaints?"
 - **Get streamed answers** grounded in actual product data via RAG (no hallucinated specs)
-- **Upload new categories** at any time through the built-in dataset panel
 
 ---
 
@@ -119,7 +118,7 @@ Open **http://localhost:8501**
 
 ### Things to know about the Cloud environment
 
-- **Storage is ephemeral.** The bundled demo dataset (`data/processed/products.jsonl`, committed to the repo) always reloads on startup, so the app never comes up empty. But anything added afterwards — an **Upload Dataset** file, or the extra products it indexes — lives on local disk for the lifetime of the running container only. It survives reruns and normal use, but is wiped on redeploy or after the app sleeps from inactivity, reverting back to just the bundled demo data.
+- **Storage is ephemeral, but that's fine here.** The catalogue always comes from `data/processed/products.jsonl`, which is committed to the repo and reloaded on every startup — so the app never comes up empty, and there's nothing dynamic that could be lost on a redeploy or a sleep/wake cycle.
 - **Memory.** The free tier has limited RAM. `fastembed` (ONNX-based, no PyTorch) was chosen specifically to keep the embedding step lightweight; if you load a very large dataset (100k+ products) on the free tier, watch for OOM and consider a smaller category file first.
 - **Cold start.** The first request after a sleep/redeploy re-downloads the ~90 MB embedding model and re-initializes ChromaDB — expect a slower first load.
 
@@ -127,9 +126,11 @@ Open **http://localhost:8501**
 
 ## Loading Product Data
 
-The app ships with a small **demo dataset built in** — 300 products from the UCSD "Luxury Beauty" category (`data/processed/products.jsonl`, committed to the repo) — so browsing and chat work immediately with no setup. To load more/different products, go to **Upload Dataset** in the sidebar (**Replace** swaps the demo data out, **Append** merges in on top of it) and upload one of the UCSD Amazon dataset files.
+The app ships with a small **demo dataset built in** — 300 products from the UCSD "Luxury Beauty" category (`data/processed/products.jsonl`, committed to the repo) — so browsing and chat work immediately with no setup, and there's no in-app upload UI.
 
-### Download a dataset file
+To swap in a different/larger dataset, regenerate that file locally and redeploy:
+
+### 1. Download a dataset file
 
 Go to the [UCSD Amazon Reviews 2023](https://amazon-reviews-2023.github.io/) page and download any `meta_*.jsonl.gz` file. Good starting points:
 
@@ -139,9 +140,21 @@ Go to the [UCSD Amazon Reviews 2023](https://amazon-reviews-2023.github.io/) pag
 | `meta_All_Beauty.jsonl.gz` | ~60 MB | ~33k |
 | `meta_AMAZON_FASHION.jsonl.gz` | ~150 MB | ~186k |
 
-### Loading multiple categories
+### 2. Normalise it into `data/processed/products.jsonl`
 
-Upload the first file with **Replace** mode, then upload additional files with **Append** mode to merge them into the same vector store.
+```bash
+python pipeline/1_prepare_dataset.py --input path/to/meta_Whatever.jsonl.gz --max_products 300
+```
+`--max_products` caps how many end up in the file — keep it small if you want this committed to the repo (Streamlit Cloud storage is ephemeral, so whatever ships in the repo is what a fresh deploy starts with).
+
+### 3. Commit and push
+
+```bash
+git add data/processed/products.jsonl
+git commit -m "Update demo dataset"
+git push
+```
+Streamlit Cloud redeploys automatically and picks up the new file on startup.
 
 ---
 
@@ -216,7 +229,7 @@ uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 
 | Problem | Fix |
 |---|---|
-| **No products in grid** | Shouldn't happen — the demo dataset ships in the repo. If it does, check `data/processed/products.jsonl` exists, or upload a dataset file via the Upload Dataset page |
+| **No products in grid** | Shouldn't happen — the demo dataset ships in the repo. If it does, check `data/processed/products.jsonl` exists and isn't empty |
 | **Sidebar shows "No GROQ_API_KEY configured"** | Add the key to `.streamlit/secrets.toml` (local) or the app's Secrets panel (Streamlit Cloud) |
 | **Chat shows a Groq error** | Check your key is valid at https://console.groq.com/keys and that you haven't hit a rate limit |
 | **App is slow / crashes after a big upload (Cloud)** | Free tier RAM is limited — try a smaller category file, or upgrade the app's resources |
